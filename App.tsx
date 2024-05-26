@@ -1,118 +1,88 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
+import React, { useState, useEffect } from 'react';
+import { SafeAreaView, Text, FlatList, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { Device } from 'react-native-ble-plx';
+import { startBluetooth, scanDevices, connectToDevice, resetFallCount, getNetworkConfig, getConnectionStatus } from './BluetoothService';
+import styles from './styles/styles';
 
-import React from 'react';
-import type {PropsWithChildren} from 'react';
-import {
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  useColorScheme,
-  View,
-} from 'react-native';
+const App: React.FC = () => {
+  const [devices, setDevices] = useState<Map<string, Device>>(new Map());
+  const [connectedDevice, setConnectedDevice] = useState<Device | null>(null);
+  const [fallCount, setFallCount] = useState<number>(0);
+  const [networkConfig, setNetworkConfig] = useState<string>("");
+  const [connectionStatus, setConnectionStatus] = useState<string>("Déconnecté");
+  const [isScanning, setIsScanning] = useState<boolean>(false);
 
-import {
-  Colors,
-  DebugInstructions,
-  Header,
-  LearnMoreLinks,
-  ReloadInstructions,
-} from 'react-native/Libraries/NewAppScreen';
+  useEffect(() => {
+    startBluetooth();
 
-type SectionProps = PropsWithChildren<{
-  title: string;
-}>;
+    return () => {
+      if (connectedDevice) {
+        connectedDevice.cancelConnection();
+      }
+    };
+  }, [connectedDevice]);
 
-function Section({children, title}: SectionProps): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
-  return (
-    <View style={styles.sectionContainer}>
-      <Text
-        style={[
-          styles.sectionTitle,
-          {
-            color: isDarkMode ? Colors.white : Colors.black,
-          },
-        ]}>
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.sectionDescription,
-          {
-            color: isDarkMode ? Colors.light : Colors.dark,
-          },
-        ]}>
-        {children}
-      </Text>
-    </View>
-  );
-}
+  const startScan = () => {
+    scanDevices(setDevices, setIsScanning);
+  };
 
-function App(): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
+  const connectToSelectedDevice = async (device: Device) => {
+    try {
+      await connectToDevice(device, setConnectedDevice, setConnectionStatus, setFallCount);
+      const config = await getNetworkConfig(device);
+      setNetworkConfig(config);
+    } catch (err) {
+      const error = err as Error;
+      Alert.alert("Erreur de connexion", "Échec de la connexion à l'appareil : " + error.message);
+    }
+  };
 
-  const backgroundStyle = {
-    backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
+  const handleResetFallCount = async () => {
+    if (connectedDevice) {
+      await resetFallCount(connectedDevice);
+      setFallCount(0);
+    }
+  };
+
+  const disconnectDevice = async () => {
+    if (connectedDevice) {
+      await connectedDevice.cancelConnection();
+      setConnectedDevice(null);
+      setConnectionStatus("Déconnecté");
+      setFallCount(0);
+    }
   };
 
   return (
-    <SafeAreaView style={backgroundStyle}>
-      <StatusBar
-        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-        backgroundColor={backgroundStyle.backgroundColor}
+    <SafeAreaView style={styles.container}>
+      <TouchableOpacity style={styles.button} onPress={connectedDevice ? disconnectDevice : startScan} disabled={isScanning}>
+        {isScanning ? (
+          <ActivityIndicator size="small" color="#FFFFFF" />
+        ) : (
+          <Text style={styles.buttonText}>{connectedDevice ? 'Déconnecter' : 'Rechercher des appareils'}</Text>
+        )}
+      </TouchableOpacity>
+      <FlatList
+        data={Array.from(devices.values())}
+        renderItem={({ item }) => (
+          <TouchableOpacity
+            style={[styles.deviceButton, { backgroundColor: connectedDevice?.id === item.id ? 'green' : 'grey' }]}
+            onPress={() => connectToSelectedDevice(item)}
+            disabled={!!connectedDevice}
+          >
+            <Text style={styles.buttonText}>{item.name}</Text>
+          </TouchableOpacity>
+        )}
+        keyExtractor={(item) => item.id}
       />
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        style={backgroundStyle}>
-        <Header />
-        <View
-          style={{
-            backgroundColor: isDarkMode ? Colors.black : Colors.white,
-          }}>
-          <Section title="Step One">
-            Edit <Text style={styles.highlight}>App.tsx</Text> to change this
-            screen and then come back to see your edits.
-          </Section>
-          <Section title="See Your Changes">
-            <ReloadInstructions />
-          </Section>
-          <Section title="Debug">
-            <DebugInstructions />
-          </Section>
-          <Section title="Learn More">
-            Read the docs to discover what to do next:
-          </Section>
-          <LearnMoreLinks />
-        </View>
-      </ScrollView>
+      <Text style={styles.text}>Compteur de chutes: {fallCount}</Text>
+      <TouchableOpacity style={styles.button} onPress={handleResetFallCount} disabled={!connectedDevice}>
+        <Text style={styles.buttonText}>Réinitialiser le compteur de chutes</Text>
+      </TouchableOpacity>
+      <Text style={styles.text}>Configuration réseau: {networkConfig}</Text>
+      <Text style={styles.text}>Statut de connexion: {connectionStatus}</Text>
     </SafeAreaView>
   );
-}
-
-const styles = StyleSheet.create({
-  sectionContainer: {
-    marginTop: 32,
-    paddingHorizontal: 24,
-  },
-  sectionTitle: {
-    fontSize: 24,
-    fontWeight: '600',
-  },
-  sectionDescription: {
-    marginTop: 8,
-    fontSize: 18,
-    fontWeight: '400',
-  },
-  highlight: {
-    fontWeight: '700',
-  },
-});
+};
 
 export default App;
