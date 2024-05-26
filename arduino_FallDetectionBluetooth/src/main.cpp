@@ -12,6 +12,8 @@
 
 int fallCount = 0;
 bool isConnected = false;
+unsigned long lastFallTime = 0;
+const unsigned long fallInterval = 10000; // 10 seconds
 
 BLECharacteristic fallCountCharacteristic(FALL_COUNT_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
 BLECharacteristic resetFallCountCharacteristic(RESET_FALL_COUNT_UUID, BLECharacteristic::PROPERTY_WRITE);
@@ -54,19 +56,24 @@ void setup() {
 }
 
 void loop() {
-  // Simulate fall detection for demonstration purposes
-  delay(10000); // simulate a fall every 10 seconds
-  fallCount++;
-  fallCountCharacteristic.setValue(String(fallCount).c_str());  // Set the value as a string
-  fallCountCharacteristic.notify();
-  Serial.print("Fall count notified: ");
-  Serial.println(fallCount);
+  // Check if it's time to simulate a fall
+  unsigned long currentTime = millis();
+  if (currentTime - lastFallTime >= fallInterval) {
+    lastFallTime = currentTime;
+    fallCount++;
+    fallCountCharacteristic.setValue(String(fallCount).c_str());  // Set the value as a string
+    fallCountCharacteristic.notify();
+    Serial.print("Fall count notified: ");
+    Serial.println(fallCount);
+  }
 
   // Handle reset command
   std::string value = resetFallCountCharacteristic.getValue();
   if (value == "reset") {
     fallCount = 0;
     resetFallCountCharacteristic.setValue("");
+    fallCountCharacteristic.setValue(String(fallCount).c_str());  // Update the fall count characteristic immediately
+    fallCountCharacteristic.notify();  // Notify the client about the reset immediately
     Serial.println("Fall count reset");
   }
 

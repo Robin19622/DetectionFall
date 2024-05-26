@@ -1,5 +1,5 @@
 import { PermissionsAndroid, Platform, Alert } from 'react-native';
-import { BleManager, Device } from 'react-native-ble-plx';
+import { BleManager, Device, Characteristic  } from 'react-native-ble-plx';
 import base64 from 'base-64';
 
 const manager = new BleManager();
@@ -59,7 +59,6 @@ export async function scanDevices(setDevices: Function, setIsScanning: Function)
   }, 10000);
 }
 
-// Fonction pour se connecter à un appareil
 export async function connectToDevice(device: Device, setConnectedDevice: Function, setConnectionStatus: Function, setFallCount: Function) {
   try {
     await device.connect();
