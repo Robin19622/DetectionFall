@@ -3,12 +3,17 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+#include <WiFi.h> // Include the WiFi library
 
 #define SERVICE_UUID           "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define FALL_COUNT_CHAR_UUID   "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 #define RESET_FALL_COUNT_UUID  "6d68efe5-04b6-4a4d-aeae-3e97b9b96c3b"
 #define NETWORK_CONFIG_UUID    "12345678-1234-1234-1234-1234567890ab"
 #define CONNECTION_STATUS_UUID "87654321-4321-4321-4321-abcdefabcdef"
+
+// WiFi credentials
+const char* ssid = "rfid";
+const char* password = "testtest";
 
 int fallCount = 0;
 bool isConnected = false;
@@ -34,8 +39,39 @@ class MyServerCallbacks : public BLEServerCallbacks {
   }
 };
 
+void WiFiEvent(WiFiEvent_t event) {
+  switch (event) {
+    case SYSTEM_EVENT_STA_GOT_IP:
+      Serial.println("WiFi connected");
+      Serial.print("IP address: ");
+      Serial.println(WiFi.localIP());
+      connectionStatusCharacteristic.setValue("WiFi Connected");
+      connectionStatusCharacteristic.notify(); // Notify connected clients immediately
+      break;
+    case SYSTEM_EVENT_STA_DISCONNECTED:
+      Serial.println("WiFi lost connection");
+      connectionStatusCharacteristic.setValue("WiFi Disconnected");
+      connectionStatusCharacteristic.notify(); // Notify connected clients immediately
+      WiFi.begin(ssid, password); // Attempt to reconnect
+      break;
+    default:
+      break;
+  }
+}
+
 void setup() {
   Serial.begin(115200);
+
+  // Initialize WiFi
+  WiFi.onEvent(WiFiEvent); // Register the WiFi event handler
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi...");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println(" connected");
+
   BLEDevice::init("ESP32 chambre 123");
   BLEServer *pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());

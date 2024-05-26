@@ -1,5 +1,5 @@
 import { PermissionsAndroid, Platform, Alert } from 'react-native';
-import { BleManager, Device, Characteristic  } from 'react-native-ble-plx';
+import { BleManager, Device } from 'react-native-ble-plx';
 import base64 from 'base-64';
 
 const manager = new BleManager();
@@ -10,7 +10,7 @@ const RESET_FALL_COUNT_UUID = '6d68efe5-04b6-4a4d-aeae-3e97b9b96c3b';
 const NETWORK_CONFIG_UUID = '12345678-1234-1234-1234-1234567890ab';
 const CONNECTION_STATUS_UUID = '87654321-4321-4321-4321-abcdefabcdef';
 
-// Fonction pour démarrer le Bluetooth
+// Function to start Bluetooth
 export async function startBluetooth() {
   if (Platform.OS === 'android' && Platform.Version >= 23) {
     const granted = await PermissionsAndroid.requestMultiple([
@@ -33,7 +33,7 @@ export async function startBluetooth() {
   console.log('Bluetooth démarré');
 }
 
-// Fonction pour scanner les appareils
+// Function to scan for devices
 export async function scanDevices(setDevices: Function, setIsScanning: Function) {
   console.log('Recherche des appareils...');
   setIsScanning(true);
@@ -113,7 +113,7 @@ export async function connectToDevice(device: Device, setConnectedDevice: Functi
   }
 }
 
-// Fonction pour lire le compteur de chutes
+// Function to read the fall count
 export async function readFallCount(device: Device): Promise<number> {
   try {
     const characteristic = await device.readCharacteristicForService(SERVICE_UUID, FALL_COUNT_CHAR_UUID);
@@ -124,7 +124,7 @@ export async function readFallCount(device: Device): Promise<number> {
   }
 }
 
-// Fonction pour réinitialiser le compteur de chutes
+// Function to reset the fall count
 export async function resetFallCount(device: Device) {
   try {
     const resetCommand = base64.encode('reset');
@@ -135,7 +135,7 @@ export async function resetFallCount(device: Device) {
   }
 }
 
-// Fonction pour obtenir la configuration réseau
+// Function to get the network configuration
 export async function getNetworkConfig(device: Device): Promise<string> {
   try {
     const characteristic = await device.readCharacteristicForService(SERVICE_UUID, NETWORK_CONFIG_UUID);
@@ -146,7 +146,7 @@ export async function getNetworkConfig(device: Device): Promise<string> {
   }
 }
 
-// Fonction pour obtenir le statut de connexion
+// Function to get the connection status
 export async function getConnectionStatus(device: Device): Promise<string> {
   try {
     const characteristic = await device.readCharacteristicForService(SERVICE_UUID, CONNECTION_STATUS_UUID);
