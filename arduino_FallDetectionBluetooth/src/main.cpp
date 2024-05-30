@@ -3,56 +3,73 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
-#include <WiFi.h> // Include the WiFi library
+#include <WiFi.h>
 
-#define SERVICE_UUID           "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-#define FALL_COUNT_CHAR_UUID   "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-#define RESET_FALL_COUNT_UUID  "6d68efe5-04b6-4a4d-aeae-3e97b9b96c3b"
-#define NETWORK_CONFIG_UUID    "12345678-1234-1234-1234-1234567890ab"
-#define CONNECTION_STATUS_UUID "87654321-4321-4321-4321-abcdefabcdef"
+#define SERVICE_UUID                "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define FALL_COUNT_CHAR_UUID        "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#define RESET_FALL_COUNT_UUID       "6d68efe5-04b6-4a4d-aeae-3e97b9b96c3b"
+#define NETWORK_CONFIG_UUID         "12345678-1234-1234-1234-1234567890ab"
+#define BLUETOOTH_STATUS_UUID       "87654321-4321-4321-4321-abcdefabcdef"
+#define WIFI_STATUS_UUID            "abcdef12-1234-5678-9abc-def123456789"
 
-// WiFi credentials
+BLECharacteristic fallCountCharacteristic(FALL_COUNT_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+BLECharacteristic resetFallCountCharacteristic(RESET_FALL_COUNT_UUID, BLECharacteristic::PROPERTY_WRITE);
+BLECharacteristic networkConfigCharacteristic(NETWORK_CONFIG_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+BLECharacteristic bluetoothStatusCharacteristic(BLUETOOTH_STATUS_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+BLECharacteristic wifiStatusCharacteristic(WIFI_STATUS_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+
 const char* ssid = "rfid";
 const char* password = "testtest";
 
 int fallCount = 0;
 bool isConnected = false;
 unsigned long lastFallTime = 0;
-const unsigned long fallInterval = 10000; // 10 seconds
-
-BLECharacteristic fallCountCharacteristic(FALL_COUNT_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
-BLECharacteristic resetFallCountCharacteristic(RESET_FALL_COUNT_UUID, BLECharacteristic::PROPERTY_WRITE);
-BLECharacteristic networkConfigCharacteristic(NETWORK_CONFIG_UUID, BLECharacteristic::PROPERTY_READ);
-BLECharacteristic connectionStatusCharacteristic(CONNECTION_STATUS_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
-
+const unsigned long fallInterval = 10000;
 class MyServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) {
     isConnected = true;
-    Serial.println("Device connected");
-    pServer->getAdvertising()->stop();  // Stop advertising when connected
+    Serial.println("Bluetooth connecté");
+    pServer->getAdvertising()->stop();
+    
+    bluetoothStatusCharacteristic.setValue("Bluetooth connecte");
+    bluetoothStatusCharacteristic.notify();
+    
+    if (WiFi.status() == WL_CONNECTED) {
+      wifiStatusCharacteristic.setValue("WiFi connecte");
+      networkConfigCharacteristic.setValue(ssid);
+    } else {
+      wifiStatusCharacteristic.setValue("WiFi déconnecte");
+    }
+    wifiStatusCharacteristic.notify();
+    networkConfigCharacteristic.notify();
   }
 
   void onDisconnect(BLEServer* pServer) {
     isConnected = false;
-    Serial.println("Device disconnected, restarting advertising");
-    pServer->getAdvertising()->start();  // Restart advertising on disconnection
+    Serial.println("Bluetooth déconnecte, relance de la publicite");
+    pServer->getAdvertising()->start();
+    
+    bluetoothStatusCharacteristic.setValue("Bluetooth déconnecte");
+    bluetoothStatusCharacteristic.notify();
   }
 };
 
 void WiFiEvent(WiFiEvent_t event) {
   switch (event) {
     case SYSTEM_EVENT_STA_GOT_IP:
-      Serial.println("WiFi connected");
-      Serial.print("IP address: ");
+      Serial.println("WiFi connecté");
+      Serial.print("Adresse IP : ");
       Serial.println(WiFi.localIP());
-      connectionStatusCharacteristic.setValue("WiFi Connected");
-      connectionStatusCharacteristic.notify(); // Notify connected clients immediately
+      wifiStatusCharacteristic.setValue("WiFi connecte");
+      wifiStatusCharacteristic.notify();
+      networkConfigCharacteristic.setValue(ssid);
+      networkConfigCharacteristic.notify();
       break;
     case SYSTEM_EVENT_STA_DISCONNECTED:
-      Serial.println("WiFi lost connection");
-      connectionStatusCharacteristic.setValue("WiFi Disconnected");
-      connectionStatusCharacteristic.notify(); // Notify connected clients immediately
-      WiFi.begin(ssid, password); // Attempt to reconnect
+      Serial.println("Connexion WiFi perdue");
+      wifiStatusCharacteristic.setValue("WiFi déconnecte");
+      wifiStatusCharacteristic.notify();
+      WiFi.begin(ssid, password);
       break;
     default:
       break;
@@ -61,62 +78,46 @@ void WiFiEvent(WiFiEvent_t event) {
 
 void setup() {
   Serial.begin(115200);
-
-  // Initialize WiFi
-  WiFi.onEvent(WiFiEvent); // Register the WiFi event handler
+  WiFi.onEvent(WiFiEvent);
   WiFi.begin(ssid, password);
-  Serial.print("Connecting to WiFi...");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println(" connected");
-
   BLEDevice::init("ESP32 chambre 123");
-  BLEServer *pServer = BLEDevice::createServer();
+  BLEServer* pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
-  
-  BLEService *pService = pServer->createService(SERVICE_UUID);
-  
+
+  BLEService* pService = pServer->createService(SERVICE_UUID);
   pService->addCharacteristic(&fallCountCharacteristic);
   pService->addCharacteristic(&resetFallCountCharacteristic);
   pService->addCharacteristic(&networkConfigCharacteristic);
-  pService->addCharacteristic(&connectionStatusCharacteristic);
-
+  pService->addCharacteristic(&bluetoothStatusCharacteristic);  
+  pService->addCharacteristic(&wifiStatusCharacteristic);
+  
   pService->start();
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(SERVICE_UUID);
   pAdvertising->setScanResponse(true);
   pAdvertising->start();
-  Serial.println("Waiting for a client connection to notify...");
+  
+  Serial.println("Initialisation terminee");
+  delay(1000);
 }
 
 void loop() {
-  // Check if it's time to simulate a fall
   unsigned long currentTime = millis();
   if (currentTime - lastFallTime >= fallInterval) {
     lastFallTime = currentTime;
     fallCount++;
-    fallCountCharacteristic.setValue(String(fallCount).c_str());  // Set the value as a string
+    fallCountCharacteristic.setValue(String(fallCount).c_str());
     fallCountCharacteristic.notify();
-    Serial.print("Fall count notified: ");
+    Serial.print("Nombre de chute : ");
     Serial.println(fallCount);
   }
 
-  // Handle reset command
   std::string value = resetFallCountCharacteristic.getValue();
   if (value == "reset") {
     fallCount = 0;
     resetFallCountCharacteristic.setValue("");
-    fallCountCharacteristic.setValue(String(fallCount).c_str());  // Update the fall count characteristic immediately
-    fallCountCharacteristic.notify();  // Notify the client about the reset immediately
-    Serial.println("Fall count reset");
-  }
-
-  // Set connection status
-  if (isConnected) {
-    connectionStatusCharacteristic.setValue("Connected");
-  } else {
-    connectionStatusCharacteristic.setValue("Disconnected");
+    fallCountCharacteristic.setValue(String(fallCount).c_str());
+    fallCountCharacteristic.notify();
+    Serial.println("Nombre de chute reinitialise");
   }
 }

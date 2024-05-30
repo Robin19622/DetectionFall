@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { SafeAreaView, Text, FlatList, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { Device } from 'react-native-ble-plx';
-import { startBluetooth, scanDevices, connectToDevice, resetFallCount, getNetworkConfig, getConnectionStatus } from './BluetoothService';
+import { startBluetooth, scanDevices, connectToDevice, resetFallCount, getNetworkConfig, getBluetoothStatus, getWifiStatus } from './BluetoothService';
 import styles from './styles/styles';
 
 const App: React.FC = () => {
@@ -9,7 +9,8 @@ const App: React.FC = () => {
   const [connectedDevice, setConnectedDevice] = useState<Device | null>(null);
   const [fallCount, setFallCount] = useState<number>(0);
   const [networkConfig, setNetworkConfig] = useState<string>("");
-  const [connectionStatus, setConnectionStatus] = useState<string>("Déconnecté");
+  const [wifiStatus, setWifiStatus] = useState<string>("Inconnu");
+  const [bluetoothStatus, setBluetoothStatus] = useState<string>("Déconnecté");
   const [isScanning, setIsScanning] = useState<boolean>(false);
 
   useEffect(() => {
@@ -26,11 +27,17 @@ const App: React.FC = () => {
     scanDevices(setDevices, setIsScanning);
   };
 
-  const connectToSelectedDevice = async (device: Device) => {
+  const connectToSelectedDevice = async (device) => {
     try {
-      await connectToDevice(device, setConnectedDevice, setConnectionStatus, setFallCount);
+      await connectToDevice(device, setConnectedDevice, setBluetoothStatus, setFallCount, setWifiStatus);
+  
       const config = await getNetworkConfig(device);
       setNetworkConfig(config);
+      const bluetoothStatus = await getBluetoothStatus(device);
+      setBluetoothStatus(bluetoothStatus);
+  
+      const wifiStatus = await getWifiStatus(device);
+      setWifiStatus(wifiStatus);
     } catch (err) {
       const error = err as Error;
       Alert.alert("Erreur de connexion", "Échec de la connexion à l'appareil : " + error.message);
@@ -48,8 +55,9 @@ const App: React.FC = () => {
     if (connectedDevice) {
       await connectedDevice.cancelConnection();
       setConnectedDevice(null);
-      setConnectionStatus("Déconnecté");
+      setBluetoothStatus("Déconnecté");
       setFallCount(0);
+      setWifiStatus("Inconnu");
     }
   };
 
@@ -80,7 +88,8 @@ const App: React.FC = () => {
         <Text style={styles.buttonText}>Réinitialiser le compteur de chutes</Text>
       </TouchableOpacity>
       <Text style={styles.text}>Configuration réseau: {networkConfig}</Text>
-      <Text style={styles.text}>Statut de connexion: {connectionStatus}</Text>
+      <Text style={styles.text}>Statut WiFi: {wifiStatus}</Text>
+      <Text style={styles.text}>Statut Bluetooth: {bluetoothStatus}</Text>
     </SafeAreaView>
   );
 };
