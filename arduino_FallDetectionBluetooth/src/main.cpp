@@ -1,9 +1,6 @@
-#include <Arduino.h>
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
-#include <WiFi.h>
+#include <NimBLEDevice.h>
+#include <painlessMesh.h>
+#include <set>
 
 #define SERVICE_UUID                "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define FALL_COUNT_CHAR_UUID        "beb5483e-36e1-4688-b7f5-ea07361b26a8"
@@ -12,112 +9,157 @@
 #define BLUETOOTH_STATUS_UUID       "87654321-4321-4321-4321-abcdefabcdef"
 #define WIFI_STATUS_UUID            "abcdef12-1234-5678-9abc-def123456789"
 
-BLECharacteristic fallCountCharacteristic(FALL_COUNT_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
-BLECharacteristic resetFallCountCharacteristic(RESET_FALL_COUNT_UUID, BLECharacteristic::PROPERTY_WRITE);
-BLECharacteristic networkConfigCharacteristic(NETWORK_CONFIG_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
-BLECharacteristic bluetoothStatusCharacteristic(BLUETOOTH_STATUS_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
-BLECharacteristic wifiStatusCharacteristic(WIFI_STATUS_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+// #define MESH_PREFIX "alexis_robin"
+// #define MESH_PASSWORD "alexis_robin"
+// #define MESH_PORT 5555
 
-const char* ssid = "rfid";
-const char* password = "testtest";
+#define MESH_PREFIX "alexis_robin"
+#define MESH_PASSWORD "alexis_robin"
+#define MESH_PORT 5555
 
-int fallCount = 0;
+Scheduler userScheduler;
+painlessMesh mesh;
+
+const int touchPin = 1;
+const int roomNumber = 043;
+bool lastTouchState = LOW;
+int touchCount = 0;
+std::set<uint32_t> connectedNodes;
+
+NimBLECharacteristic* fallCountCharacteristic;
+NimBLECharacteristic* resetFallCountCharacteristic;
+NimBLECharacteristic* networkConfigCharacteristic;
+NimBLECharacteristic* bluetoothStatusCharacteristic;
+NimBLECharacteristic* wifiStatusCharacteristic;
+
 bool isConnected = false;
-unsigned long lastFallTime = 0;
-const unsigned long fallInterval = 10000;
-class MyServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer* pServer) {
+
+void broadcastNodeCount();
+
+Task taskBroadcastNodeCount(TASK_SECOND * 10, TASK_FOREVER, &broadcastNodeCount);
+
+class MyServerCallbacks : public NimBLEServerCallbacks {
+  void onConnect(NimBLEServer* pServer) {
     isConnected = true;
-    Serial.println("Bluetooth connecté");
+    Serial.println("Bluetooth connecte");
     pServer->getAdvertising()->stop();
-    
-    bluetoothStatusCharacteristic.setValue("Bluetooth connecte");
-    bluetoothStatusCharacteristic.notify();
-    
-    if (WiFi.status() == WL_CONNECTED) {
-      wifiStatusCharacteristic.setValue("WiFi connecte");
-      networkConfigCharacteristic.setValue(ssid);
-    } else {
-      wifiStatusCharacteristic.setValue("WiFi déconnecte");
-    }
-    wifiStatusCharacteristic.notify();
-    networkConfigCharacteristic.notify();
+
+    bluetoothStatusCharacteristic->setValue("Bluetooth connecte");
+    bluetoothStatusCharacteristic->notify();
+
+    wifiStatusCharacteristic->setValue("WiFi mesh connecte");
+    networkConfigCharacteristic->setValue(MESH_PREFIX);
+    wifiStatusCharacteristic->notify();
+    networkConfigCharacteristic->notify();
+
+    Serial.printf("Current fall count: %d\n", touchCount);
+    fallCountCharacteristic->setValue(String(touchCount));
+    fallCountCharacteristic->notify();
   }
 
-  void onDisconnect(BLEServer* pServer) {
+  void onDisconnect(NimBLEServer* pServer) {
     isConnected = false;
-    Serial.println("Bluetooth déconnecte, relance de la publicite");
+    Serial.println("Bluetooth déconnecté, relance de la publicité");
     pServer->getAdvertising()->start();
-    
-    bluetoothStatusCharacteristic.setValue("Bluetooth déconnecte");
-    bluetoothStatusCharacteristic.notify();
+
+    bluetoothStatusCharacteristic->setValue("Bluetooth déconnecté");
+    bluetoothStatusCharacteristic->notify();
   }
 };
 
-void WiFiEvent(WiFiEvent_t event) {
-  switch (event) {
-    case SYSTEM_EVENT_STA_GOT_IP:
-      Serial.println("WiFi connecté");
-      Serial.print("Adresse IP : ");
-      Serial.println(WiFi.localIP());
-      wifiStatusCharacteristic.setValue("WiFi connecte");
-      wifiStatusCharacteristic.notify();
-      networkConfigCharacteristic.setValue(ssid);
-      networkConfigCharacteristic.notify();
-      break;
-    case SYSTEM_EVENT_STA_DISCONNECTED:
-      Serial.println("Connexion WiFi perdue");
-      wifiStatusCharacteristic.setValue("WiFi déconnecte");
-      wifiStatusCharacteristic.notify();
-      WiFi.begin(ssid, password);
-      break;
-    default:
-      break;
+void sendMessage() {
+  touchCount++;
+  String msg = "Chute: chambre " + String(roomNumber) + "; Count: " + String(touchCount) + "; Node ID: " + String(mesh.getNodeId());
+  //String msg = " ,Patient ID: robin, Room: 003 ,  ";
+  mesh.sendBroadcast(msg);
+  Serial.printf("%s\n", msg.c_str());
+  fallCountCharacteristic->setValue(String(touchCount));
+  fallCountCharacteristic->notify();
+}
+
+void receivedCallback(uint32_t from, String &msg) {
+    Serial.printf("%s\n", msg.c_str());
+}
+
+
+void newConnectionCallback(uint32_t nodeId) {
+  Serial.printf("--> startHere: New Connection, nodeId = %u\n", nodeId);
+  connectedNodes.insert(nodeId);
+  Serial.printf("Number of connected nodes: %d\n", connectedNodes.size());
+}
+
+void changedConnectionCallback() {
+  Serial.printf("Changed connections\n");
+  connectedNodes.clear();
+  auto nodes = mesh.getNodeList();
+  for (auto node : nodes) {
+    connectedNodes.insert(node);
   }
+  Serial.printf("Number of connected nodes: %d\n", connectedNodes.size());
+}
+
+void nodeTimeAdjustedCallback(int32_t offset) {
+  Serial.printf("Adjusted time %u. Offset = %d\n", mesh.getNodeTime(), offset);
+}
+
+void broadcastNodeCount() {
+  String msg = "Number of connected nodes: " + String(connectedNodes.size());
+  mesh.sendBroadcast(msg);
+  Serial.printf("%s\n", msg.c_str());
 }
 
 void setup() {
   Serial.begin(115200);
-  WiFi.onEvent(WiFiEvent);
-  WiFi.begin(ssid, password);
-  BLEDevice::init("ESP32 chambre 123");
-  BLEServer* pServer = BLEDevice::createServer();
+  pinMode(touchPin, INPUT);
+
+  NimBLEDevice::init("ESP32 chambre 043");
+  NimBLEServer* pServer = NimBLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
 
-  BLEService* pService = pServer->createService(SERVICE_UUID);
-  pService->addCharacteristic(&fallCountCharacteristic);
-  pService->addCharacteristic(&resetFallCountCharacteristic);
-  pService->addCharacteristic(&networkConfigCharacteristic);
-  pService->addCharacteristic(&bluetoothStatusCharacteristic);  
-  pService->addCharacteristic(&wifiStatusCharacteristic);
-  
+  NimBLEService* pService = pServer->createService(SERVICE_UUID);
+
+  fallCountCharacteristic = pService->createCharacteristic(FALL_COUNT_CHAR_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+  resetFallCountCharacteristic = pService->createCharacteristic(RESET_FALL_COUNT_UUID, NIMBLE_PROPERTY::WRITE);
+  networkConfigCharacteristic = pService->createCharacteristic(NETWORK_CONFIG_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+  bluetoothStatusCharacteristic = pService->createCharacteristic(BLUETOOTH_STATUS_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+  wifiStatusCharacteristic = pService->createCharacteristic(WIFI_STATUS_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+
   pService->start();
-  BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
+  NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(SERVICE_UUID);
   pAdvertising->setScanResponse(true);
   pAdvertising->start();
-  
-  Serial.println("Initialisation terminee");
+
+  Serial.println("Bluetooth initialisation terminée");
+
+  mesh.init(MESH_PREFIX, MESH_PASSWORD, &userScheduler, MESH_PORT);
+  mesh.onReceive(&receivedCallback);
+  mesh.onNewConnection(&newConnectionCallback);
+  mesh.onChangedConnections(&changedConnectionCallback);
+  mesh.onNodeTimeAdjusted(&nodeTimeAdjustedCallback);
+
+  userScheduler.addTask(taskBroadcastNodeCount);
+  taskBroadcastNodeCount.enable();
+
+  Serial.println("Mesh initialisation terminee");
   delay(1000);
 }
 
 void loop() {
-  unsigned long currentTime = millis();
-  if (currentTime - lastFallTime >= fallInterval) {
-    lastFallTime = currentTime;
-    fallCount++;
-    fallCountCharacteristic.setValue(String(fallCount).c_str());
-    fallCountCharacteristic.notify();
-    Serial.print("Nombre de chute : ");
-    Serial.println(fallCount);
-  }
+  mesh.update();
 
-  std::string value = resetFallCountCharacteristic.getValue();
+  bool currentTouchState = digitalRead(touchPin);
+  if (currentTouchState == HIGH && lastTouchState == LOW) {
+    sendMessage();
+  }
+  lastTouchState = currentTouchState;
+
+  std::string value = resetFallCountCharacteristic->getValue();
   if (value == "reset") {
-    fallCount = 0;
-    resetFallCountCharacteristic.setValue("");
-    fallCountCharacteristic.setValue(String(fallCount).c_str());
-    fallCountCharacteristic.notify();
+    touchCount = 0;
+    resetFallCountCharacteristic->setValue("");
+    fallCountCharacteristic->setValue(String(touchCount));
+    fallCountCharacteristic->notify();
     Serial.println("Nombre de chute reinitialise");
   }
 }

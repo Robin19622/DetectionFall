@@ -3,29 +3,10 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
 react {
-    /* Folders */
-    // root = file("../")
-    // reactNativeDir = file("../node_modules/react-native")
-    // codegenDir = file("../node_modules/@react-native/codegen")
-    // cliFile = file("../node_modules/react-native/cli.js")
-
-    /* Variants */
-    // debuggableVariants = ["liteDebug", "prodDebug"]
-
-    /* Bundling */
-    // nodeExecutableAndArgs = ["node"]
-    // bundleCommand = "ram-bundle"
-    // bundleConfig = file(../rn-cli.config.js)
-    // bundleAssetName = "MyApplication.android.bundle"
-    // entryFile = file("../js/MyApplication.android.js")
-    // extraPackagerArgs = []
-
-    /* Hermes Commands */
-    // hermesCommand = "$rootDir/my-custom-hermesc/bin/hermesc"
-    // hermesFlags = ["-O", "-output-source-map"]
+    // Configuration options if needed
 }
 
-def enableProguardInReleaseBuilds = false
+def enableProguardInReleaseBuilds = true // Enable Proguard for release builds
 def jscFlavor = 'org.webkit:android-jsc:+'
 
 android {
@@ -65,6 +46,7 @@ android {
         release {
             signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
+            shrinkResources enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
             debuggable false
         }
@@ -79,6 +61,8 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
+    // Add any other dependencies your app requires
 }
 
 apply from: file("../../node_modules/@react-native-community/cli-platform-android/native_modules.gradle"); applyNativeModulesAppBuildGradle(project)
